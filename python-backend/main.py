@@ -244,6 +244,17 @@ async def activate_roaming(
 
 
 @function_tool
+async def deactivate_roaming(
+    context: RunContextWrapper[TelcoAgentContext],
+    mobile_number: str,
+) -> str:
+    """Deactivate international roaming for a mobile number."""
+    context.context.mobile_number = mobile_number
+    context.context.roaming_active = False
+    return f"Roaming deactivated for {mobile_number}."
+
+
+@function_tool
 async def book_technician(
     context: RunContextWrapper[TelcoAgentContext],
     postal_code: str,
@@ -517,7 +528,7 @@ def roaming_instructions(
         f"{RECOMMENDED_PROMPT_PREFIX}\n"
         "You are a Roaming Agent. Use this routine:\n"
         f"1. Mobile number: {mobile}. If missing, ask for it.\n"
-        f"2. Roaming status is {status}. If the customer requests activation, use activate_roaming.\n"
+        f"2. Roaming status is {status}. If the customer requests activation, use activate_roaming. If the customer requests deactivation, use deactivate_roaming.\n"
         "3. Provide any applicable daily roaming charges and supported countries."
         + _resume_suffix(run_context)
         + _finalize_suffix(run_context)
@@ -529,7 +540,7 @@ roaming_agent = Agent[TelcoAgentContext](
     model="gpt-4.1",
     handoff_description="Activates roaming and answers roaming questions.",
     instructions=roaming_instructions,
-    tools=[activate_roaming, telco_faq_lookup],
+    tools=[activate_roaming, deactivate_roaming, telco_faq_lookup],
     input_guardrails=[relevance_guardrail, jailbreak_guardrail],
 )
 
