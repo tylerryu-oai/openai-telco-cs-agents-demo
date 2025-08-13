@@ -41,3 +41,52 @@ export async function callHumanReplyAPI(message: string, conversationId: string)
 export async function callHumanBackAPI(conversationId: string) {
   return postWithRetry("/api/human_back", { conversation_id: conversationId });
 }
+
+export type StreamEvent = {
+  event: string;
+  data: any;
+};
+
+export async function startChatStream(
+  message: string,
+  conversationId: string,
+  onEvent: (e: StreamEvent) => void
+): Promise<void> {
+  const res = await fetch("/api/chat/stream", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ conversation_id: conversationId, message }),
+  });
+  if (!res.ok || !res.body) {
+    throw new Error(`stream status ${res.status}`);
+  }
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    let idx: number;
+    // SSE frames are separated by blank line
+    while ((idx = buffer.indexOf("\n\n")) !== -1) {
+      const frame = buffer.slice(0, idx);
+      buffer = buffer.slice(idx + 2);
+      const lines = frame.split("\n");
+      let event = "message";
+      let dataStr = "";
+      for (const line of lines) {
+        if (line.startsWith("event:")) event = line.slice(6).trim();
+        else if (line.startsWith("data:")) dataStr += line.slice(5).trim();
+      }
+      if (dataStr) {
+        try {
+          const data = JSON.parse(dataStr);
+          onEvent({ event, data });
+        } catch {
+          // ignore parse errors
+        }
+      }
+    }
+  }
+}

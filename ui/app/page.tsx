@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { AgentPanel } from "@/components/agent-panel";
 import { Chat } from "@/components/Chat";
 import type { Agent, AgentEvent, GuardrailCheck, Message } from "@/lib/types";
-import { callChatAPI, callHumanReplyAPI, callHumanBackAPI } from "@/lib/api";
+import { callChatAPI, callHumanReplyAPI, callHumanBackAPI, startChatStream, type StreamEvent } from "@/lib/api";
 
 export default function Home() {
   const [messages, setMessages] = useState<Message[]>([]);
@@ -65,9 +65,96 @@ export default function Home() {
     setMessages((prev) => [...prev, userMsg]);
     setIsLoading(true);
 
-    const data = await callChatAPI(content, conversationId ?? "");
-    if (!data) {
-      // Backend error. Show a friendly assistant message and unlock input.
+    // Prepare a placeholder assistant message for streaming
+    const assistantId = Date.now().toString() + Math.random().toString();
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: assistantId,
+        content: "",
+        role: "assistant",
+        agent: currentAgent || "Assistant",
+        timestamp: new Date(),
+      },
+    ]);
+
+    try {
+      await startChatStream(content, conversationId ?? "", (e: StreamEvent) => {
+        const { event, data } = e;
+        if (event === "response.output_item.added") {
+          const agentName = data?.item?.agent || data?.agent || currentAgent;
+          setMessages((prev) => prev.map((m) => (m.id === assistantId ? { ...m, agent: agentName } : m)));
+        } else if (event === "response.output_text.delta") {
+          const delta = data?.delta || "";
+          if (!delta) return;
+          setMessages((prev) => prev.map((m) => (m.id === assistantId ? { ...m, content: (m.content || "") + delta } : m)));
+        } else if (event === "response.output_text.done") {
+          const full = data?.text || "";
+          setMessages((prev) => prev.map((m) => (m.id === assistantId ? { ...m, content: full, latencyMs: Date.now() - started } : m)));
+        } else if (event === "response.event") {
+          // Map generic events to AgentEvent shape
+          const now = new Date();
+          if (data?.type === "handoff") {
+            setEvents((prev) => [
+              ...prev,
+              {
+                id: Date.now().toString() + Math.random().toString(),
+                type: "handoff",
+                agent: data.source_agent || currentAgent || "",
+                content: `${data.source_agent} -> ${data.target_agent}`,
+                timestamp: now,
+                metadata: { source_agent: data.source_agent, target_agent: data.target_agent },
+              },
+            ]);
+          } else if (data?.type === "tool_call") {
+            setEvents((prev) => [
+              ...prev,
+              {
+                id: Date.now().toString() + Math.random().toString(),
+                type: "tool_call",
+                agent: data.agent || currentAgent || "",
+                content: data.tool || "",
+                timestamp: now,
+                metadata: data.metadata || {},
+              },
+            ]);
+          } else if (data?.type === "tool_output") {
+            setEvents((prev) => [
+              ...prev,
+              {
+                id: Date.now().toString() + Math.random().toString(),
+                type: "tool_output",
+                agent: data.agent || currentAgent || "",
+                content: "",
+                timestamp: now,
+                metadata: data.metadata || {},
+              },
+            ]);
+          } else if (data?.type === "context_update") {
+            setEvents((prev) => [
+              ...prev,
+              {
+                id: Date.now().toString() + Math.random().toString(),
+                type: "context_update",
+                agent: data.agent || currentAgent || "",
+                content: "",
+                timestamp: now,
+                metadata: { changes: data.changes || {} },
+              },
+            ]);
+          }
+        } else if (event === "response.completed") {
+          const r = data?.response;
+          if (!r) return;
+          if (!conversationId || conversationId !== r.conversation_id) setConversationId(r.conversation_id);
+          if (r.current_agent) setCurrentAgent(r.current_agent);
+          if (r.context) setContext(r.context);
+          if (Array.isArray(r.guardrails)) setGuardrails(r.guardrails);
+          if (Array.isArray(r.agents)) setAgents(r.agents);
+          setIsLoading(false);
+        }
+      });
+    } catch (err) {
       setMessages((prev) => [
         ...prev,
         {
@@ -80,39 +167,7 @@ export default function Home() {
         },
       ]);
       setIsLoading(false);
-      return;
     }
-
-    if (!conversationId || conversationId !== data.conversation_id) {
-      setConversationId(data.conversation_id);
-    }
-    setCurrentAgent(data.current_agent);
-    setContext(data.context);
-    if (data.events) {
-      const stamped = data.events.map((e: any) => ({
-        ...e,
-        timestamp: e.timestamp ?? Date.now(),
-      }));
-      setEvents((prev) => [...prev, ...stamped]);
-    }
-    if (data.agents) setAgents(data.agents);
-    // Update guardrails state
-    if (data.guardrails) setGuardrails(data.guardrails);
-
-    if (data.messages) {
-      const latencyMs = Date.now() - started;
-      const responses: Message[] = data.messages.map((m: any) => ({
-        id: Date.now().toString() + Math.random().toString(),
-        content: m.content,
-        role: "assistant",
-        agent: m.agent,
-        timestamp: new Date(),
-        latencyMs,
-      }));
-      setMessages((prev) => [...prev, ...responses]);
-    }
-
-    setIsLoading(false);
   };
 
   // Human operator reply
