@@ -1,15 +1,7 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   devIndicators: false,
-  // Proxy /chat requests to the backend server
-  async rewrites() {
-    return [
-      {
-        source: "/chat",
-        destination: "http://127.0.0.1:8000/chat",
-      },
-    ];
-  },
+  // No rewrites: API routes under /api/* proxy to backend with no keep-alive
 };
 
 export default nextConfig;

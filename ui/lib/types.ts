@@ -4,6 +4,8 @@ export interface Message {
   role: "user" | "assistant"
   agent?: string
   timestamp: Date
+  /** Optional latency in milliseconds for assistant messages */
+  latencyMs?: number
 }
 
 export interface Agent {

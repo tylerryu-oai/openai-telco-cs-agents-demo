@@ -3,15 +3,17 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import type { Message } from "@/lib/types";
 import ReactMarkdown from "react-markdown";
+import { agentColorClasses } from "@/lib/utils";
 
 interface ChatProps {
   messages: Message[];
   onSendMessage: (message: string) => void;
   /** Whether waiting for assistant response */
   isLoading?: boolean;
+  colorEnabled?: boolean;
 }
 
-export function Chat({ messages, onSendMessage, isLoading }: ChatProps) {
+export function Chat({ messages, onSendMessage, isLoading, colorEnabled = true }: ChatProps) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [inputText, setInputText] = useState("");
   const [isComposing, setIsComposing] = useState(false);
@@ -62,8 +64,21 @@ export function Chat({ messages, onSendMessage, isLoading }: ChatProps) {
                   <ReactMarkdown>{msg.content}</ReactMarkdown>
                 </div>
               ) : (
-                <div className="mr-4 rounded-[16px] rounded-bl-[4px] px-4 py-2 md:mr-24 text-zinc-900 bg-[#ECECF1] font-light max-w-[80%]">
-                  <ReactMarkdown>{msg.content}</ReactMarkdown>
+                <div className="flex items-end gap-2">
+                  <div
+                    className={
+                      `mr-1 rounded-[16px] rounded-bl-[4px] px-4 py-2 text-zinc-900 font-light max-w-[80%] ` +
+                      `${colorEnabled ? agentColorClasses(msg.agent).bubbleBg : "bg-[#ECECF1]"}`
+                    }
+                    title={msg.agent ? `Agent: ${msg.agent}` : undefined}
+                  >
+                    <ReactMarkdown>{msg.content}</ReactMarkdown>
+                  </div>
+                  {typeof msg.latencyMs === "number" && (
+                    <span className="text-[10px] text-gray-400 whitespace-nowrap">
+                      {(msg.latencyMs / 1000).toFixed(1)}s
+                    </span>
+                  )}
                 </div>
               )}
             </div>
@@ -93,13 +108,14 @@ export function Chat({ messages, onSendMessage, isLoading }: ChatProps) {
                     className="mb-2 resize-none border-0 focus:outline-none text-sm bg-transparent px-0 pb-6 pt-2"
                     value={inputText}
                     onChange={(e) => setInputText(e.target.value)}
+                    disabled={!!isLoading}
                     onKeyDown={handleKeyDown}
                     onCompositionStart={() => setIsComposing(true)}
                     onCompositionEnd={() => setIsComposing(false)}
                   />
                 </div>
                 <button
-                  disabled={!inputText.trim()}
+                  disabled={!inputText.trim() || !!isLoading}
                   className="flex h-8 w-8 items-end justify-center rounded-full bg-black text-white hover:opacity-70 disabled:bg-gray-300 disabled:text-gray-400 transition-colors focus:outline-none"
                   onClick={handleSend}
                 >

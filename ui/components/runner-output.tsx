@@ -56,14 +56,22 @@ function EventDetails({ event }: { event: AgentEvent }) {
       );
       break;
     case "tool_call":
-      details = event.metadata && event.metadata.tool_args && (
-        <div className={className}>
-          <div className="text-xs text-zinc-600 mb-1 font-medium">
-            Arguments
-          </div>
-          <pre className="text-xs text-gray-600 bg-gray-50 p-2 rounded overflow-x-auto">
-            {JSON.stringify(event.metadata.tool_args, null, 2)}
-          </pre>
+      details = event.metadata && (
+        <div className="flex flex-col gap-2">
+          {event.metadata.preamble && (
+            <div className={className}>
+              <div className="text-xs text-zinc-600 mb-1 font-medium">Reasoning</div>
+              <div className="text-gray-700 whitespace-pre-wrap">{String(event.metadata.preamble)}</div>
+            </div>
+          )}
+          {event.metadata.tool_args && (
+            <div className={className}>
+              <div className="text-xs text-zinc-600 mb-1 font-medium">Arguments</div>
+              <pre className="text-xs text-gray-600 bg-gray-50 p-2 rounded overflow-x-auto">
+                {JSON.stringify(event.metadata.tool_args, null, 2)}
+              </pre>
+            </div>
+          )}
         </div>
       );
       break;

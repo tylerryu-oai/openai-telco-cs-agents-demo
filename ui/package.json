@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev:next": "npx next dev",
-    "dev:server": "cd ../python-backend && .venv/bin/uvicorn api:app --reload --host 0.0.0.0 --port 8000",
+    "dev:server": "cd ../python-backend && .venv/bin/uvicorn api:app --host 0.0.0.0 --port 8000",
     "dev": "concurrently \"npm run dev:next\" \"npm run dev:server\"",
     "build": "next build",
     "start": "next start",
@@ -25,6 +25,7 @@
     "react-syntax-highlighter": "^15.6.1",
     "tailwind-merge": "^3.0.2",
     "tailwindcss-animate": "^1.0.7",
+    "undici": "^6.21.3",
     "wavtools": "^0.1.5"
   },
   "devDependencies": {
