@@ -9,9 +9,12 @@ import logging
 from main import (
     triage_agent,
     faq_agent,
-    seat_booking_agent,
-    flight_status_agent,
-    cancellation_agent,
+    plan_change_agent,
+    billing_agent,
+    tech_support_agent,
+    data_usage_agent,
+    roaming_agent,
+    human_support_agent,
     create_initial_context,
 )
 
@@ -78,6 +81,15 @@ class ChatResponse(BaseModel):
     agents: List[Dict[str, Any]]
     guardrails: List[GuardrailCheck] = []
 
+
+class HumanReplyRequest(BaseModel):
+    conversation_id: str
+    message: str
+
+
+class HumanBackRequest(BaseModel):
+    conversation_id: str
+
 # =========================
 # In-memory store for conversation state
 # =========================
@@ -110,9 +122,12 @@ def _get_agent_by_name(name: str):
     agents = {
         triage_agent.name: triage_agent,
         faq_agent.name: faq_agent,
-        seat_booking_agent.name: seat_booking_agent,
-        flight_status_agent.name: flight_status_agent,
-        cancellation_agent.name: cancellation_agent,
+        plan_change_agent.name: plan_change_agent,
+        billing_agent.name: billing_agent,
+        tech_support_agent.name: tech_support_agent,
+        data_usage_agent.name: data_usage_agent,
+        roaming_agent.name: roaming_agent,
+        human_support_agent.name: human_support_agent,
     }
     return agents.get(name, triage_agent)
 
@@ -142,9 +157,12 @@ def _build_agents_list() -> List[Dict[str, Any]]:
     return [
         make_agent_dict(triage_agent),
         make_agent_dict(faq_agent),
-        make_agent_dict(seat_booking_agent),
-        make_agent_dict(flight_status_agent),
-        make_agent_dict(cancellation_agent),
+        make_agent_dict(plan_change_agent),
+        make_agent_dict(billing_agent),
+        make_agent_dict(tech_support_agent),
+        make_agent_dict(data_usage_agent),
+        make_agent_dict(roaming_agent),
+        make_agent_dict(human_support_agent),
     ]
 
 # =========================
@@ -160,7 +178,8 @@ async def chat_endpoint(req: ChatRequest):
     # Initialize or retrieve conversation state
     is_new = not req.conversation_id or conversation_store.get(req.conversation_id) is None
     if is_new:
-        conversation_id: str = uuid4().hex
+        # If the client supplied an id but we don't have state (e.g., server restart), reuse it
+        conversation_id: str = req.conversation_id or uuid4().hex
         ctx = create_initial_context()
         current_agent_name = triage_agent.name
         state: Dict[str, Any] = {
@@ -188,6 +207,19 @@ async def chat_endpoint(req: ChatRequest):
     old_context = state["context"].model_dump().copy()
     guardrail_checks: List[GuardrailCheck] = []
 
+    # If the current agent is Human Support, do not auto-run the model.
+    if current_agent.name == human_support_agent.name:
+        conversation_store.save(conversation_id, state)
+        return ChatResponse(
+            conversation_id=conversation_id,
+            current_agent=current_agent.name,
+            messages=[],
+            events=[],
+            context=state["context"].model_dump(),
+            agents=_build_agents_list(),
+            guardrails=[],
+        )
+
     try:
         result = await Runner.run(current_agent, state["input_items"], context=state["context"])
     except InputGuardrailTripwireTriggered as e:
@@ -205,7 +237,7 @@ async def chat_endpoint(req: ChatRequest):
                 passed=(g != failed),
                 timestamp=gr_timestamp,
             ))
-        refusal = "Sorry, I can only answer questions related to airline travel."
+        refusal = "Sorry, I can only answer questions related to telco support (plans, billing, usage, roaming, outages)."
         state["input_items"].append({"role": "assistant", "content": refusal})
         return ChatResponse(
             conversation_id=conversation_id,
@@ -220,6 +252,7 @@ async def chat_endpoint(req: ChatRequest):
     messages: List[MessageResponse] = []
     events: List[AgentEvent] = []
 
+    handoff_target_agent = None
     for item in result.new_items:
         if isinstance(item, MessageOutputItem):
             text = ItemHelpers.text_message_output(item)
@@ -227,25 +260,16 @@ async def chat_endpoint(req: ChatRequest):
             events.append(AgentEvent(id=uuid4().hex, type="message", agent=item.agent.name, content=text))
         # Handle handoff output and agent switching
         elif isinstance(item, HandoffOutputItem):
-            # Record the handoff event
-            events.append(
-                AgentEvent(
-                    id=uuid4().hex,
-                    type="handoff",
-                    agent=item.source_agent.name,
-                    content=f"{item.source_agent.name} -> {item.target_agent.name}",
-                    metadata={"source_agent": item.source_agent.name, "target_agent": item.target_agent.name},
-                )
-            )
-            # If there is an on_handoff callback defined for this handoff, show it as a tool call
             from_agent = item.source_agent
-            to_agent = item.target_agent
+            proposed_target = item.target_agent
+            final_target = proposed_target
             # Find the Handoff object on the source agent matching the target
             ho = next(
                 (h for h in getattr(from_agent, "handoffs", [])
-                 if isinstance(h, Handoff) and getattr(h, "agent_name", None) == to_agent.name),
+                 if isinstance(h, Handoff) and getattr(h, "agent_name", None) == proposed_target.name),
                 None,
             )
+            cb_name = None
             if ho:
                 fn = ho.on_invoke_handoff
                 fv = fn.__code__.co_freevars
@@ -255,15 +279,31 @@ async def chat_endpoint(req: ChatRequest):
                     if idx < len(cl) and cl[idx].cell_contents:
                         cb = cl[idx].cell_contents
                         cb_name = getattr(cb, "__name__", repr(cb))
-                        events.append(
-                            AgentEvent(
-                                id=uuid4().hex,
-                                type="tool_call",
-                                agent=to_agent.name,
-                                content=cb_name,
-                            )
-                        )
-            current_agent = item.target_agent
+                        # Map on_*_handoff callbacks to Human Support for manual review
+                        if cb_name in {"on_plan_change_handoff", "on_billing_handoff", "on_support_handoff"}:
+                            final_target = human_support_agent
+            # Record the handoff event with final target
+            events.append(
+                AgentEvent(
+                    id=uuid4().hex,
+                    type="handoff",
+                    agent=from_agent.name,
+                    content=f"{from_agent.name} -> {final_target.name}",
+                    metadata={"source_agent": from_agent.name, "target_agent": final_target.name},
+                )
+            )
+            # Record the callback as a tool call (attribute to final target for clarity)
+            if cb_name:
+                events.append(
+                    AgentEvent(
+                        id=uuid4().hex,
+                        type="tool_call",
+                        agent=final_target.name,
+                        content=cb_name,
+                    )
+                )
+            current_agent = final_target
+            handoff_target_agent = final_target
         elif isinstance(item, ToolCallItem):
             tool_name = getattr(item.raw_item, "name", None)
             raw_args = getattr(item.raw_item, "arguments", None)
@@ -283,14 +323,7 @@ async def chat_endpoint(req: ChatRequest):
                     metadata={"tool_args": tool_args},
                 )
             )
-            # If the tool is display_seat_map, send a special message so the UI can render the seat selector.
-            if tool_name == "display_seat_map":
-                messages.append(
-                    MessageResponse(
-                        content="DISPLAY_SEAT_MAP",
-                        agent=item.agent.name,
-                    )
-                )
+            # No special UI triggers for telco tools
         elif isinstance(item, ToolCallOutputItem):
             events.append(
                 AgentEvent(
@@ -301,6 +334,49 @@ async def chat_endpoint(req: ChatRequest):
                     metadata={"tool_result": item.output},
                 )
             )
+
+    # If we just handed off and the target agent didn't produce a message yet, do one follow-up run
+    if handoff_target_agent is not None and handoff_target_agent.name != human_support_agent.name:
+        produced_message_from_target = any(m.agent == handoff_target_agent.name for m in messages)
+        if not produced_message_from_target:
+            follow_input = result.to_input_list()
+            follow_result = await Runner.run(handoff_target_agent, follow_input, context=state["context"])
+            for item in follow_result.new_items:
+                if isinstance(item, MessageOutputItem):
+                    text = ItemHelpers.text_message_output(item)
+                    messages.append(MessageResponse(content=text, agent=item.agent.name))
+                    events.append(AgentEvent(id=uuid4().hex, type="message", agent=item.agent.name, content=text))
+                elif isinstance(item, ToolCallItem):
+                    tool_name = getattr(item.raw_item, "name", None)
+                    raw_args = getattr(item.raw_item, "arguments", None)
+                    tool_args: Any = raw_args
+                    if isinstance(raw_args, str):
+                        try:
+                            import json
+                            tool_args = json.loads(raw_args)
+                        except Exception:
+                            pass
+                    events.append(
+                        AgentEvent(
+                            id=uuid4().hex,
+                            type="tool_call",
+                            agent=item.agent.name,
+                            content=tool_name or "",
+                            metadata={"tool_args": tool_args},
+                        )
+                    )
+                elif isinstance(item, ToolCallOutputItem):
+                    events.append(
+                        AgentEvent(
+                            id=uuid4().hex,
+                            type="tool_output",
+                            agent=item.agent.name,
+                            content=str(item.output),
+                            metadata={"tool_result": item.output},
+                        )
+                    )
+            # Update the base result to reflect follow-up for state persistence below
+            result = follow_result
 
     new_context = state["context"].dict()
     changes = {k: new_context[k] for k in new_context if old_context.get(k) != new_context[k]}
@@ -344,4 +420,140 @@ async def chat_endpoint(req: ChatRequest):
         context=state["context"].dict(),
         agents=_build_agents_list(),
         guardrails=final_guardrails,
+    )
+
+
+@app.post("/human_reply", response_model=ChatResponse)
+async def human_reply_endpoint(req: HumanReplyRequest):
+    conversation_id = req.conversation_id
+    state = conversation_store.get(conversation_id)
+    if state is None:
+        # Initialize a new state defaulting to Human Support
+        ctx = create_initial_context()
+        state = {
+            "input_items": [],
+            "context": ctx,
+            "current_agent": human_support_agent.name,
+        }
+    else:
+        # Switch to human support if not already
+        if state["current_agent"] != human_support_agent.name:
+            state["current_agent"] = human_support_agent.name
+
+    # Append assistant message from human
+    state["input_items"].append({"role": "assistant", "content": req.message})
+
+    messages = [MessageResponse(content=req.message, agent=human_support_agent.name)]
+    events = [
+        AgentEvent(
+            id=uuid4().hex,
+            type="message",
+            agent=human_support_agent.name,
+            content=req.message,
+        )
+    ]
+
+    conversation_store.save(conversation_id, state)
+    return ChatResponse(
+        conversation_id=conversation_id,
+        current_agent=human_support_agent.name,
+        messages=messages,
+        events=events,
+        context=state["context"].model_dump(),
+        agents=_build_agents_list(),
+        guardrails=[],
+    )
+
+
+@app.post("/human_back", response_model=ChatResponse)
+async def human_back_endpoint(req: HumanBackRequest):
+    conversation_id = req.conversation_id
+    state = conversation_store.get(conversation_id)
+    if state is None:
+        # Nothing to resume; create a fresh triage session
+        ctx = create_initial_context()
+        state = {
+            "input_items": [],
+            "context": ctx,
+            "current_agent": triage_agent.name,
+        }
+    current_agent = triage_agent
+    old_context = state["context"].model_dump().copy()
+
+    result = await Runner.run(current_agent, state["input_items"], context=state["context"])
+
+    messages: List[MessageResponse] = []
+    events: List[AgentEvent] = []
+
+    for item in result.new_items:
+        if isinstance(item, MessageOutputItem):
+            text = ItemHelpers.text_message_output(item)
+            messages.append(MessageResponse(content=text, agent=item.agent.name))
+            events.append(AgentEvent(id=uuid4().hex, type="message", agent=item.agent.name, content=text))
+        elif isinstance(item, HandoffOutputItem):
+            events.append(
+                AgentEvent(
+                    id=uuid4().hex,
+                    type="handoff",
+                    agent=item.source_agent.name,
+                    content=f"{item.source_agent.name} -> {item.target_agent.name}",
+                    metadata={"source_agent": item.source_agent.name, "target_agent": item.target_agent.name},
+                )
+            )
+            current_agent = item.target_agent
+        elif isinstance(item, ToolCallItem):
+            tool_name = getattr(item.raw_item, "name", None)
+            raw_args = getattr(item.raw_item, "arguments", None)
+            tool_args: Any = raw_args
+            if isinstance(raw_args, str):
+                try:
+                    import json
+                    tool_args = json.loads(raw_args)
+                except Exception:
+                    pass
+            events.append(
+                AgentEvent(
+                    id=uuid4().hex,
+                    type="tool_call",
+                    agent=item.agent.name,
+                    content=tool_name or "",
+                    metadata={"tool_args": tool_args},
+                )
+            )
+        elif isinstance(item, ToolCallOutputItem):
+            events.append(
+                AgentEvent(
+                    id=uuid4().hex,
+                    type="tool_output",
+                    agent=item.agent.name,
+                    content=str(item.output),
+                    metadata={"tool_result": item.output},
+                )
+            )
+
+    new_context = state["context"].dict()
+    changes = {k: new_context[k] for k in new_context if old_context.get(k) != new_context[k]}
+    if changes:
+        events.append(
+            AgentEvent(
+                id=uuid4().hex,
+                type="context_update",
+                agent=current_agent.name,
+                content="",
+                metadata={"changes": changes},
+            )
+        )
+
+    state["input_items"] = result.to_input_list()
+    state["current_agent"] = current_agent.name
+    conversation_store.save(conversation_id, state)
+
+    return ChatResponse(
+        conversation_id=conversation_id,
+        current_agent=current_agent.name,
+        messages=messages,
+        events=events,
+        context=state["context"].dict(),
+        agents=_build_agents_list(),
+        guardrails=[],
     )
