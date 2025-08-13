@@ -18,7 +18,7 @@ export function Guardrails({ guardrails, inputGuardrails }: GuardrailsProps) {
   };
 
   const guardrailDescriptionMap: Record<string, string> = {
-    "Relevance Guardrail": "Ensure messages are relevant to airline support",
+    "Relevance Guardrail": "Ensure messages are relevant to telco support (plans, billing, usage, roaming, outages)",
     "Jailbreak Guardrail":
       "Detect and block attempts to bypass or override system instructions",
   };

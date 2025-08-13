@@ -59,7 +59,9 @@ export default function Home() {
 
     const data = await callChatAPI(content, conversationId ?? "");
 
-    if (!conversationId) setConversationId(data.conversation_id);
+    if (!conversationId || conversationId !== data.conversation_id) {
+      setConversationId(data.conversation_id);
+    }
     setCurrentAgent(data.current_agent);
     setContext(data.context);
     if (data.events) {
