@@ -2,6 +2,7 @@ from __future__ import annotations as _annotations
 
 import random
 import string
+from openai import OpenAI
 from pydantic import BaseModel
 
 from agents import (
@@ -61,6 +62,7 @@ class TelcoAgentContext(BaseModel):
     roaming_active: bool | None = None
     plan_catalog_version: str | None = None
     featured_plans: str | None = None
+    resume_hint: bool | None = None
 
 
 def create_initial_context() -> TelcoAgentContext:
@@ -127,39 +129,56 @@ def create_initial_context() -> TelcoAgentContext:
 # TOOLS (Telco)
 # =========================
 
+# Common instruction suffix to standardize final closing behavior across agents
+def _finalize_suffix(run_context: RunContextWrapper["TelcoAgentContext"]) -> str:
+    ctx = run_context.context
+    ticket = ctx.ticket_id or "[unknown]"
+    return (
+        "\n\nWhen the user indicates they are done (e.g., 'that's all', 'done', 'thanks', 'we're finished'), "
+        f"end your reply with a thank you and let them know that if they have any follow ups, they can use the ticket number {ticket} to reach back"
+    )
+
+
+def _resume_suffix(run_context: RunContextWrapper["TelcoAgentContext"]) -> str:
+    if not getattr(run_context.context, "resume_hint", False):
+        return ""
+    return (
+        "\n\nYou are resuming after a human operator just replied. Continue naturally from that message. "
+        "Do NOT restate their content, do NOT thank them for information, and do NOT re-escalate unless strictly necessary. "
+        "Provide a brief follow-up (e.g., confirm next steps or ask if there’s anything else to help with) and keep it concise."
+    )
+
 @function_tool(
     name_override="telco_faq_lookup",
-    description_override="Lookup common telco FAQs like roaming, coverage, SIM replacement, or add-ons.",
+    description_override="Search the web (prefer Singtel) to answer telco FAQs with sources.",
 )
 async def telco_faq_lookup(question: str) -> str:
-    """Lookup answers to frequently asked telco questions."""
-    q = question.lower()
-    if "roaming" in q or "overseas" in q:
-        return (
-            "Roaming can be activated on eligible plans. Daily Roaming is supported in most countries. "
-            "Ensure data roaming is enabled on your device. Charges may apply per day."
+    """Use OpenAI web search to answer using official Singtel sources when possible."""
+    try:
+        client = OpenAI()
+        prompt = (
+            "Answer concisely using official Singtel information when available. "
+            "Search the web, prefer results from site:singtel.com. "
+            "Include 1-3 source links with titles at the end.\n\n"
+            f"Question: {question}"
         )
-    if "coverage" in q or "5g" in q:
-        return (
-            "5G Standalone is available across most of Singapore's population. "
-            "You need a 5G-compatible device and a 5G plan to access it."
+        resp = client.responses.create(
+            model="gpt-4.1",
+            tools=[{"type": "web_search"}],
+            tool_choice="auto",
+            input=[{
+                "role": "user",
+                "content": [{"type": "input_text", "text": prompt}],
+            }],
         )
-    if "sim" in q and ("replace" in q or "lost" in q or "swap" in q):
-        return (
-            "You can replace your SIM at any Singtel shop with valid ID. A replacement fee may apply. "
-            "eSIM is available for many devices."
-        )
-    if "contract" in q or "recontract" in q:
-        return (
-            "Most plans recontract every 12–24 months. You can recontract 2 months before expiry. "
-            "Device discounts may be available during recontract."
-        )
-    if "addon" in q or "add-on" in q or "data pass" in q:
-        return (
-            "You can purchase data passes and roaming add-ons in the Singtel app. "
-            "They activate immediately and charges will be reflected in your next bill."
-        )
-    return "I'm sorry, I don't have an answer for that. Please contact support."
+        # Best-effort extraction of text
+        text = getattr(resp, "output_text", None)
+        if isinstance(text, str) and text.strip():
+            return text.strip()
+        # Fallback to raw output
+        return str(resp)
+    except Exception as e:
+        return f"Sorry, I couldn't complete a web search right now. Error: {e}"
 
 
 @function_tool
@@ -388,6 +407,8 @@ def plan_change_instructions(
         "2. Ask which plan they would like to switch to.\n"
         "3. Use the upgrade_plan tool to change their plan. Confirm the change and any pro-rated charges.\n"
         "If the request is unrelated to plan changes, transfer back to the triage agent."
+        + _resume_suffix(run_context)
+        + _finalize_suffix(run_context)
     )
 
 
@@ -412,7 +433,9 @@ def billing_instructions(
         "You are a Billing Agent. Use this routine:\n"
         f"1. The current outstanding balance is {shown}. If unknown, ask the customer to verify their account.\n"
         "2. If they wish to make a payment, confirm the amount and use the pay_bill tool.\n"
-        "3. If they have questions about charges, provide a brief explanation or transfer to triage if unrelated to billing."
+        "3. If they have questions about charges, provide a brief explanation. If you are unsure of the request, send it back to the triage agent. If you require more details about billing beyond what you can provide, hand off to Human Support."
+        + _resume_suffix(run_context)
+        + _finalize_suffix(run_context)
     )
 
 
@@ -439,6 +462,8 @@ def tech_support_instructions(
         "2. Use the check_outage tool. If an outage exists, provide ETA.\n"
         "3. If no outage and issue persists, offer to book a technician using the book_technician tool.\n"
         f"Ticket on file: {ticket}."
+        + _resume_suffix(run_context)
+        + _finalize_suffix(run_context)
     )
 
 
@@ -466,6 +491,8 @@ def data_usage_instructions(
         f"2. Use check_data_usage to retrieve current usage.\n"
         f"3. Report remaining data (currently {remaining_str}) and reset date (1st of month).\n"
         "If the request is unrelated to usage, transfer back to triage."
+        + _resume_suffix(run_context)
+        + _finalize_suffix(run_context)
     )
 
 
@@ -492,6 +519,8 @@ def roaming_instructions(
         f"1. Mobile number: {mobile}. If missing, ask for it.\n"
         f"2. Roaming status is {status}. If the customer requests activation, use activate_roaming.\n"
         "3. Provide any applicable daily roaming charges and supported countries."
+        + _resume_suffix(run_context)
+        + _finalize_suffix(run_context)
     )
 
 
@@ -505,33 +534,48 @@ roaming_agent = Agent[TelcoAgentContext](
 )
 
 
+def faq_instructions(
+    run_context: RunContextWrapper[TelcoAgentContext], agent: Agent[TelcoAgentContext]
+) -> str:
+    return (
+        f"{RECOMMENDED_PROMPT_PREFIX}\n"
+        "You are a Telco FAQ agent. If you are speaking to a customer, you were likely transferred from the triage agent.\n"
+        "Use this routine:\n"
+        "1. Identify the customer's latest question.\n"
+        "2. If they ask about their own account details (e.g., \"what plan am I on\", \"what is my plan\"), use the get_current_plan tool to read it from context.\n"
+        "3. If they ask for available plans or options, use list_available_plans and optionally plan_details if they pick one.\n"
+        "4. Otherwise, use the telco_faq_lookup tool (web search; prefer site:singtel.com) to answer with sources.\n"
+        "5. Respond to the customer with the answer."
+        + _resume_suffix(run_context)
+        + _finalize_suffix(run_context)
+    )
+
 faq_agent = Agent[TelcoAgentContext](
     name="FAQ Agent",
     model="gpt-4.1",
     handoff_description="Answers common questions about plans, coverage, and roaming.",
-    instructions=f"""{RECOMMENDED_PROMPT_PREFIX}
-    You are a Telco FAQ agent. If you are speaking to a customer, you were likely transferred from the triage agent.
-    Use this routine:
-    1. Identify the customer's latest question.
-    2. If they ask about their own account details (e.g., "what plan am I on", "what is my plan"), use the get_current_plan tool to read it from context.
-    3. If they ask for available plans or options, use list_available_plans and optionally plan_details if they pick one.
-    4. Otherwise, use the telco_faq_lookup tool to answer general policy questions. Do not rely on your own knowledge.
-    5. Respond to the customer with the answer.
-    """,
+    instructions=faq_instructions,
     tools=[get_current_plan, list_available_plans, plan_details, telco_faq_lookup],
     input_guardrails=[relevance_guardrail, jailbreak_guardrail],
 )
 
 
+def triage_instructions(
+    run_context: RunContextWrapper[TelcoAgentContext], agent: Agent[TelcoAgentContext]
+) -> str:
+    return (
+        f"{RECOMMENDED_PROMPT_PREFIX} "
+        "You are a helpful triaging agent. You can delegate to the most appropriate specialist agent. "
+        "If you are not confident or the request requires a person, hand off to Human Support."
+        + _resume_suffix(run_context)
+        + _finalize_suffix(run_context)
+    )
+
 triage_agent = Agent[TelcoAgentContext](
     name="Triage Agent",
     model="gpt-4.1",
     handoff_description="Delegates the customer's request to the appropriate telco agent.",
-    instructions=(
-        f"{RECOMMENDED_PROMPT_PREFIX} "
-        "You are a helpful triaging agent. You can delegate to the most appropriate specialist agent. "
-        "If you are not confident or the request requires a person, hand off to Human Support."
-    ),
+    instructions=triage_instructions,
     handoffs=[
         handoff(agent=plan_change_agent, on_handoff=on_plan_change_handoff),
         handoff(agent=billing_agent, on_handoff=on_billing_handoff),
@@ -563,3 +607,6 @@ triage_agent.handoffs.append(human_support_agent)
 # Set up handoff relationships (return paths to triage)
 for a in [plan_change_agent, billing_agent, tech_support_agent, data_usage_agent, roaming_agent, faq_agent, human_support_agent]:
     a.handoffs.append(triage_agent)
+
+# Allow Billing Agent to hand off directly to Human Support when needed
+billing_agent.handoffs.append(human_support_agent)

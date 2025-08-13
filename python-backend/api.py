@@ -279,9 +279,25 @@ async def chat_endpoint(req: ChatRequest):
                     if idx < len(cl) and cl[idx].cell_contents:
                         cb = cl[idx].cell_contents
                         cb_name = getattr(cb, "__name__", repr(cb))
-                        # Map on_*_handoff callbacks to Human Support for manual review
-                        if cb_name in {"on_plan_change_handoff", "on_billing_handoff", "on_support_handoff"}:
+                        # Previously routed all on_*_handoff callbacks to Human Support.
+                        # Adjusted to only route Technical Support handoffs to Human, so Billing/Plan go to their agents first.
+                        if cb_name in {"on_support_handoff"}:
                             final_target = human_support_agent
+            # If routing to Human Support, remember where to resume later
+            try:
+                # Proposed target is the specialist the model wanted to hand off to
+                proposed_name = getattr(proposed_target, "name", None)
+                final_name = getattr(final_target, "name", None)
+                if final_name == human_support_agent.name:
+                    if proposed_name and proposed_name != human_support_agent.name:
+                        # Resume with the proposed specialist after human finishes
+                        state["resume_agent_name"] = proposed_name
+                    else:
+                        # If the model directly handed to Human from triage, resume with triage
+                        state["resume_agent_name"] = from_agent.name
+            except Exception:
+                pass
+
             # Record the handoff event with final target
             events.append(
                 AgentEvent(
@@ -440,8 +456,47 @@ async def human_reply_endpoint(req: HumanReplyRequest):
         if state["current_agent"] != human_support_agent.name:
             state["current_agent"] = human_support_agent.name
 
-    # Append assistant message from human
+    # Guardrail check on the human message using triage guardrails
+    guardrail_checks: List[GuardrailCheck] = []
+    try:
+        _ = await Runner.run(triage_agent, [{"role": "user", "content": req.message}], context=state["context"])
+        guardrails_ok = True
+    except InputGuardrailTripwireTriggered as e:
+        guardrails_ok = False
+        failed = e.guardrail_result.guardrail
+        gr_output = e.guardrail_result.output.output_info
+        gr_reasoning = getattr(gr_output, "reasoning", "")
+        gr_input = req.message
+        gr_timestamp = time.time() * 1000
+        for g in triage_agent.input_guardrails:
+            guardrail_checks.append(GuardrailCheck(
+                id=uuid4().hex,
+                name=(getattr(g, "name", None) or getattr(getattr(g, "guardrail_function", None), "__name__", "Guardrail")),
+                input=gr_input,
+                reasoning=(gr_reasoning if g == failed else ""),
+                passed=(g != failed),
+                timestamp=gr_timestamp,
+            ))
+
+    if not guardrails_ok:
+        # Do not append the message; surface failure to UI so operator can try again
+        conversation_store.save(conversation_id, state)
+        return ChatResponse(
+            conversation_id=conversation_id,
+            current_agent=human_support_agent.name,
+            messages=[],
+            events=[],
+            context=state["context"].model_dump(),
+            agents=_build_agents_list(),
+            guardrails=guardrail_checks,
+        )
+
+    # Guardrails passed: append assistant message from human and mark resume hint
     state["input_items"].append({"role": "assistant", "content": req.message})
+    try:
+        setattr(state["context"], "resume_hint", True)
+    except Exception:
+        pass
 
     messages = [MessageResponse(content=req.message, agent=human_support_agent.name)]
     events = [
@@ -477,7 +532,13 @@ async def human_back_endpoint(req: HumanBackRequest):
             "context": ctx,
             "current_agent": triage_agent.name,
         }
-    current_agent = triage_agent
+    # Prefer resuming with a remembered agent (e.g., the specialist before human handoff)
+    resume_name = None
+    try:
+        resume_name = state.get("resume_agent_name")  # type: ignore
+    except Exception:
+        resume_name = None
+    current_agent = _get_agent_by_name(resume_name) if resume_name else triage_agent
     old_context = state["context"].model_dump().copy()
 
     result = await Runner.run(current_agent, state["input_items"], context=state["context"])
@@ -546,6 +607,18 @@ async def human_back_endpoint(req: HumanBackRequest):
 
     state["input_items"] = result.to_input_list()
     state["current_agent"] = current_agent.name
+    # Clear resume hint and resume agent name after resuming
+    try:
+        if hasattr(state["context"], "resume_hint"):
+            setattr(state["context"], "resume_hint", None)
+    except Exception:
+        pass
+    # Clear resume hint after resuming
+    if "resume_agent_name" in state:
+        try:
+            del state["resume_agent_name"]
+        except Exception:
+            state["resume_agent_name"] = None
     conversation_store.save(conversation_id, state)
 
     return ChatResponse(
