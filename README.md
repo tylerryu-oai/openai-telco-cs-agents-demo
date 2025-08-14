@@ -4,6 +4,9 @@
 ![NextJS](https://img.shields.io/badge/Built_with-NextJS-blue)
 ![OpenAI API](https://img.shields.io/badge/Powered_by-OpenAI_API-orange)
 
+> [!NOTE]
+> This is a fork of the original CS Agents Demo, this fork focuses on telco customer service scenarios and other changes that make this GPT-5 compliant.
+
 This repository contains a demo of a Customer Service Agent interface built on top of the [OpenAI Agents SDK](https://openai.github.io/openai-agents-python/).
 It is composed of two parts:
 
