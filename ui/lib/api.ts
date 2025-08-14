@@ -52,10 +52,16 @@ export async function startChatStream(
   conversationId: string,
   onEvent: (e: StreamEvent) => void
 ): Promise<void> {
-  const res = await fetch("/api/chat/stream", {
+  const res = await fetch("/api/chat/stream?mode=runner", {
+    // Use runner mode by default to preserve agent workflow and handoffs
+    // Switch to direct by appending ?mode=direct if needed
+    // e.g., fetch("/api/chat/stream?mode=direct", ...)
+    cache: "no-store",
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ conversation_id: conversationId, message }),
+    // Append mode=runner to ensure handovers/tools via Runner path
+    // Note: Next.js route reads this query param
   });
   if (!res.ok || !res.body) {
     throw new Error(`stream status ${res.status}`);

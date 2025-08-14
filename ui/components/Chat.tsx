@@ -53,11 +53,14 @@ export function Chat({ messages, onSendMessage, isLoading, colorEnabled = true }
       {/* Messages */}
       <div className="flex-1 overflow-y-auto min-h-0 md:px-4 pt-4 pb-20">
         {messages.map((msg, idx) => {
+          // Hide assistant bubble until first token arrives
+          if (msg.role !== "user" && (!msg.content || msg.content.trim() === "")) {
+            return null;
+          }
           return (
             <div
               key={idx}
-              className={`flex mb-5 text-sm ${msg.role === "user" ? "justify-end" : "justify-start"
-                }`}
+              className={`flex mb-5 text-sm ${msg.role === "user" ? "justify-end" : "justify-start"}`}
             >
               {msg.role === "user" ? (
                 <div className="ml-4 rounded-[16px] rounded-br-[4px] px-4 py-2 md:ml-24 bg-black text-white font-light max-w-[80%]">
@@ -84,11 +87,16 @@ export function Chat({ messages, onSendMessage, isLoading, colorEnabled = true }
             </div>
           );
         })}
-        {isLoading && (
-          <div className="flex mb-5 text-sm justify-start">
-            <div className="h-3 w-3 bg-black rounded-full animate-pulse" />
-          </div>
-        )}
+        {/* Typing indicator: only show while awaiting first token */}
+        {(() => {
+          const last = messages[messages.length - 1];
+          const showTyping = !!last && last.role === "assistant" && (!last.content || last.content.trim() === "");
+          return showTyping ? (
+            <div className="flex mb-5 text-sm justify-start">
+              <div className="h-3 w-3 bg-black rounded-full animate-pulse" />
+            </div>
+          ) : null;
+        })()}
         <div ref={messagesEndRef} />
       </div>
 

@@ -1,7 +1,10 @@
 export const runtime = 'nodejs';
 
 export async function POST(req: Request) {
-  const r = await fetch('http://127.0.0.1:8000/chat_stream', {
+  const url = new URL(req.url);
+  const mode = url.searchParams.get('mode') || 'direct';
+  const target = mode === 'runner' ? 'http://127.0.0.1:8000/chat_stream' : 'http://127.0.0.1:8000/chat_stream_direct';
+  const r = await fetch(target, {
     method: 'POST',
     body: await req.arrayBuffer(),
     headers: { 'Content-Type': 'application/json', 'Connection': 'keep-alive' },

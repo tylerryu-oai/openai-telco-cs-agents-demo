@@ -65,32 +65,52 @@ export default function Home() {
     setMessages((prev) => [...prev, userMsg]);
     setIsLoading(true);
 
-    // Prepare a placeholder assistant message for streaming
+    // Prepare a placeholder assistant message for streaming (AI-only)
     const assistantId = Date.now().toString() + Math.random().toString();
-    setMessages((prev) => [
-      ...prev,
-      {
-        id: assistantId,
-        content: "",
-        role: "assistant",
-        agent: currentAgent || "Assistant",
-        timestamp: new Date(),
-      },
-    ]);
+    const shouldPlacehold = (currentAgent || "") !== "Human Support";
+    if (shouldPlacehold) {
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: assistantId,
+          content: "",
+          role: "assistant",
+          agent: currentAgent || "Assistant",
+          timestamp: new Date(),
+        },
+      ]);
+    }
 
     try {
+      // Track whether current stream item is an assistant text message
+      let isStreamingAssistantText = false;
       await startChatStream(content, conversationId ?? "", (e: StreamEvent) => {
         const { event, data } = e;
         if (event === "response.output_item.added") {
+          const itemType = data?.item?.type;
           const agentName = data?.item?.agent || data?.agent || currentAgent;
-          setMessages((prev) => prev.map((m) => (m.id === assistantId ? { ...m, agent: agentName } : m)));
+          isStreamingAssistantText = itemType === "message";
+          if (shouldPlacehold && isStreamingAssistantText) {
+            setMessages((prev) => prev.map((m) => (m.id === assistantId ? { ...m, agent: agentName } : m)));
+          }
         } else if (event === "response.output_text.delta") {
           const delta = data?.delta || "";
           if (!delta) return;
-          setMessages((prev) => prev.map((m) => (m.id === assistantId ? { ...m, content: (m.content || "") + delta } : m)));
+          if (shouldPlacehold && isStreamingAssistantText) {
+            setMessages((prev) => prev.map((m) => (m.id === assistantId ? { ...m, content: (m.content || "") + delta } : m)));
+          }
         } else if (event === "response.output_text.done") {
           const full = data?.text || "";
-          setMessages((prev) => prev.map((m) => (m.id === assistantId ? { ...m, content: full, latencyMs: Date.now() - started } : m)));
+          if (shouldPlacehold && isStreamingAssistantText) {
+            setMessages((prev) => prev.map((m) => (m.id === assistantId ? { ...m, content: full, latencyMs: Date.now() - started } : m)));
+          }
+          isStreamingAssistantText = false;
+        } else if (event === "response.output_item.done") {
+          // Close out any non-text items cleanly
+          const itemType = data?.item?.type;
+          if (itemType === "message") {
+            isStreamingAssistantText = false;
+          }
         } else if (event === "response.event") {
           // Map generic events to AgentEvent shape
           const now = new Date();
