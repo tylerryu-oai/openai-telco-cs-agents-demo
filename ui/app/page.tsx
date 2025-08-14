@@ -67,7 +67,7 @@ export default function Home() {
 
     // Prepare a placeholder assistant message for streaming (AI-only)
     const assistantId = Date.now().toString() + Math.random().toString();
-    const shouldPlacehold = (currentAgent || "") !== "Human Support";
+    const shouldPlacehold = (currentAgent || "") !== "Human";
     if (shouldPlacehold) {
       setMessages((prev) => [
         ...prev,

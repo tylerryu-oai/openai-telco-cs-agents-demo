@@ -20,7 +20,7 @@ export function AgentsList({ agents, currentAgent, colorEnabled = true }: Agents
       title="Available Agents"
       icon={<Bot className="h-4 w-4 text-blue-600" />}
     >
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-2 gap-3 items-stretch">
         {agents.map((agent) => {
           const colors = colorEnabled ? agentColorClasses(agent.name) : { bubbleBg: "bg-zinc-100", dotBg: "bg-zinc-300", ring: "ring-blue-500" };
           const isActive = agent.name === currentAgent;
@@ -29,7 +29,7 @@ export function AgentsList({ agents, currentAgent, colorEnabled = true }: Agents
             <Card
               key={agent.name}
               className={cn(
-                "bg-white border-gray-200 transition-all",
+                "bg-white border-gray-200 transition-all h-36 overflow-hidden flex flex-col",
                 !isReachable && "opacity-50 filter grayscale cursor-not-allowed pointer-events-none",
                 isActive && `ring-1 ${colors.ring} shadow-md`
               )}
@@ -37,10 +37,10 @@ export function AgentsList({ agents, currentAgent, colorEnabled = true }: Agents
               <CardHeader className="p-3 pb-1">
                 <CardTitle className="text-sm flex items-center text-zinc-900 gap-2">
                   <span className={cn("w-2.5 h-2.5 rounded-full", colors.dotBg)} />
-                  {agent.name}
+                  {agent.name} Agent
                 </CardTitle>
               </CardHeader>
-              <CardContent className="p-3 pt-1">
+              <CardContent className="p-3 pt-1 flex-1">
                 <p className="text-xs font-light text-zinc-500">
                   {agent.description}
                 </p>

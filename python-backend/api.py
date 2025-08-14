@@ -15,12 +15,8 @@ from openai import OpenAI
 
 from main import (
     triage_agent,
-    faq_agent,
-    plan_change_agent,
-    billing_agent,
+    customer_support_agent,
     tech_support_agent,
-    data_usage_agent,
-    roaming_agent,
     human_support_agent,
     AGENT_MODEL,
     create_initial_context,
@@ -129,12 +125,8 @@ def _get_agent_by_name(name: str):
     """Return the agent object by name."""
     agents = {
         triage_agent.name: triage_agent,
-        faq_agent.name: faq_agent,
-        plan_change_agent.name: plan_change_agent,
-        billing_agent.name: billing_agent,
+        customer_support_agent.name: customer_support_agent,
         tech_support_agent.name: tech_support_agent,
-        data_usage_agent.name: data_usage_agent,
-        roaming_agent.name: roaming_agent,
         human_support_agent.name: human_support_agent,
     }
     return agents.get(name, triage_agent)
@@ -164,12 +156,8 @@ def _build_agents_list() -> List[Dict[str, Any]]:
         }
     return [
         make_agent_dict(triage_agent),
-        make_agent_dict(faq_agent),
-        make_agent_dict(plan_change_agent),
-        make_agent_dict(billing_agent),
+        make_agent_dict(customer_support_agent),
         make_agent_dict(tech_support_agent),
-        make_agent_dict(data_usage_agent),
-        make_agent_dict(roaming_agent),
         make_agent_dict(human_support_agent),
     ]
 
@@ -998,12 +986,8 @@ async def chat_stream_direct_endpoint(req: ChatRequest):
                             "type": "string",
                             "enum": [
                                 triage_agent.name,
-                                faq_agent.name,
-                                plan_change_agent.name,
-                                billing_agent.name,
+                                customer_support_agent.name,
                                 tech_support_agent.name,
-                                data_usage_agent.name,
-                                roaming_agent.name,
                                 human_support_agent.name,
                             ],
                         }
@@ -1231,7 +1215,7 @@ async def chat_stream_direct_endpoint(req: ChatRequest):
                 f"{instructions}\n\n"
                 f"You are currently acting as '{current_agent_name}'. "
                 f"If another specialist agent is more appropriate, call the 'handoff_to' function with agent_name set to one of: "
-                f"['{triage_agent.name}', '{faq_agent.name}', '{plan_change_agent.name}', '{billing_agent.name}', '{tech_support_agent.name}', '{data_usage_agent.name}', '{roaming_agent.name}', '{human_support_agent.name}']. "
+                f"['{triage_agent.name}', '{customer_support_agent.name}', '{tech_support_agent.name}', '{human_support_agent.name}']. "
                 f"Use other tools when needed to fulfill the user's request. "
                 f"After you call any function (including 'handoff_to'), you must continue the turn and produce a concise assistant reply to the user summarizing the outcome or next steps."
             )

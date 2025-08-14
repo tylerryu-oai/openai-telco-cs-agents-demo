@@ -492,56 +492,10 @@ async def jailbreak_guardrail(
 # AGENTS
 # =========================
 
-def plan_change_instructions(
-    run_context: RunContextWrapper[TelcoAgentContext], agent: Agent[TelcoAgentContext]
-) -> str:
-    ctx = run_context.context
-    mobile = ctx.mobile_number or "[unknown]"
-    plan = ctx.plan_name or "[unknown]"
-    body = (
-        "You are a Plan Change Agent for a telco. Use this routine to support the customer:\n"
-        f"1. The customer's mobile number is {mobile} and current plan is {plan}. "
-        "If missing, ask the customer for their mobile number.\n"
-        "2. Ask which plan they would like to switch to.\n"
-        "3. Use the upgrade_plan tool to change their plan. Confirm the change and any pro-rated charges.\n"
-        "If the request is unrelated to plan changes, transfer back to the triage agent."
-    )
-    return compose_agent_instructions(run_context, body)
+# Consolidated into Customer Support agent below
 
 
-plan_change_agent = Agent[TelcoAgentContext](
-    name="Plan Change Agent",
-    model=AGENT_MODEL,
-    handoff_description="Helps customers change or upgrade their mobile plan.",
-    instructions=plan_change_instructions,
-    tools=[upgrade_plan, list_available_plans, plan_details, telco_faq_lookup],
-    input_guardrails=[relevance_guardrail, jailbreak_guardrail],
-)
-
-
-def billing_instructions(
-    run_context: RunContextWrapper[TelcoAgentContext], agent: Agent[TelcoAgentContext]
-) -> str:
-    ctx = run_context.context
-    balance = ctx.billing_balance
-    shown = f"${balance:.2f}" if isinstance(balance, (int, float)) else "[unknown]"
-    body = (
-        "You are a Billing Agent. Use this routine:\n"
-        f"1. The current outstanding balance is {shown}. If unknown, ask the customer to verify their account.\n"
-        "2. If they wish to make a payment, confirm the amount and use the pay_bill tool.\n"
-        "3. If they have questions about charges, provide a brief explanation. If you are unsure of the request, send it back to the triage agent. If you require more details about billing beyond what you can provide, hand off to Human Support."
-    )
-    return compose_agent_instructions(run_context, body)
-
-
-billing_agent = Agent[TelcoAgentContext](
-    name="Billing Agent",
-    model=AGENT_MODEL,
-    handoff_description="Handles bill inquiries and payments.",
-    instructions=billing_instructions,
-    tools=[pay_bill],
-    input_guardrails=[relevance_guardrail, jailbreak_guardrail],
-)
+# Consolidated into Customer Support agent below
 
 
 def tech_support_instructions(
@@ -561,7 +515,7 @@ def tech_support_instructions(
 
 
 tech_support_agent = Agent[TelcoAgentContext](
-    name="Technical Support Agent",
+    name="Technical Support",
     model=AGENT_MODEL,
     handoff_description="Helps troubleshoot issues and schedules technicians.",
     instructions=tech_support_instructions,
@@ -570,111 +524,40 @@ tech_support_agent = Agent[TelcoAgentContext](
 )
 
 
-def data_usage_instructions(
-    run_context: RunContextWrapper[TelcoAgentContext], agent: Agent[TelcoAgentContext]
-) -> str:
-    ctx = run_context.context
-    mobile = ctx.mobile_number or "[unknown]"
-    remaining = ctx.data_remaining_gb
-    remaining_str = f"{remaining} GB" if remaining is not None else "[unknown]"
-    body = (
-        "You are a Data Usage Agent. Use this routine:\n"
-        f"1. Mobile number: {mobile}. If missing, ask for it.\n"
-        f"2. Use check_data_usage to retrieve current usage.\n"
-        f"3. Report remaining data (currently {remaining_str}) and reset date (1st of month).\n"
-        "If the request is unrelated to usage, transfer back to triage."
-    )
-    return compose_agent_instructions(run_context, body)
+# Consolidated into Customer Support agent below
 
 
-data_usage_agent = Agent[TelcoAgentContext](
-    name="Data Usage Agent",
-    model=AGENT_MODEL,
-    handoff_description="Provides current mobile data usage.",
-    instructions=data_usage_instructions,
-    tools=[check_data_usage],
-    input_guardrails=[relevance_guardrail, jailbreak_guardrail],
-)
+# Consolidated into Customer Support agent below
 
 
-def roaming_instructions(
-    run_context: RunContextWrapper[TelcoAgentContext], agent: Agent[TelcoAgentContext]
-) -> str:
-    ctx = run_context.context
-    mobile = ctx.mobile_number or "[unknown]"
-    roaming = ctx.roaming_active
-    status = "active" if roaming else "inactive"
-    body = (
-        "You are a Roaming Agent. Use this routine:\n"
-        f"1. Mobile number: {mobile}. If missing, ask for it.\n"
-        f"2. Roaming status is {status}. If the customer requests activation, use activate_roaming. If the customer requests deactivation, use deactivate_roaming.\n"
-        "3. If the customer explicitly asks for roaming rates or country coverage, you may provide a brief summary and direct them to official links; otherwise avoid web searches by default to keep responses fast."
-    )
-    return compose_agent_instructions(run_context, body)
-
-
-roaming_agent = Agent[TelcoAgentContext](
-    name="Roaming Agent",
-    model=AGENT_MODEL,
-    handoff_description="Activates roaming and answers roaming questions.",
-    instructions=roaming_instructions,
-    tools=[activate_roaming, deactivate_roaming],
-    input_guardrails=[relevance_guardrail, jailbreak_guardrail],
-)
-
-
-def faq_instructions(
-    run_context: RunContextWrapper[TelcoAgentContext], agent: Agent[TelcoAgentContext]
-) -> str:
-    body = (
-        "You are a Telco FAQ agent. If you are speaking to a customer, you were likely transferred from the triage agent.\n"
-        "Use this routine:\n"
-        "1. Identify the customer's latest question.\n"
-        "2. If they ask about their own account details (e.g., \"what plan am I on\", \"what is my plan\"), use the get_current_plan tool to read it from context.\n"
-        "3. If they ask for available plans or options, use list_available_plans and optionally plan_details if they pick one.\n"
-        "4. Otherwise, use the telco_faq_lookup tool (web search; prefer site:singtel.com) to answer with sources.\n"
-        "5. Respond to the customer with the answer."
-    )
-    return compose_agent_instructions(run_context, body)
-
-faq_agent = Agent[TelcoAgentContext](
-    name="FAQ Agent",
-    model=AGENT_MODEL,
-    handoff_description="Answers common questions about plans, coverage, and roaming.",
-    instructions=faq_instructions,
-    tools=[get_current_plan, list_available_plans, plan_details, telco_faq_lookup],
-    input_guardrails=[relevance_guardrail, jailbreak_guardrail],
-)
+# FAQ functionality is handled by Triage (read-only tools)
 
 
 def triage_instructions(
     run_context: RunContextWrapper[TelcoAgentContext], agent: Agent[TelcoAgentContext]
 ) -> str:
     body = (
-        "You are a helpful triaging agent. You can delegate to the most appropriate specialist agent. Do not give too many options that can be confusing to the user, unless they ask for it, keep it simple."
-        "If you are not confident or the request requires a person, hand off to Human Support."
+        "You are a Triage agent: a general knowledge base and Q&A bot for telco topics."
+        " Prefer answering directly using read-only tools. If the user asks for any account changes, billing actions,"
+        " data usage lookups, or roaming activation/deactivation, hand over to Customer Support."
+        " If there are technical issues (outages, connectivity), hand over to Technical Support."
+        " If a human is explicitly requested or the task clearly requires a person, hand over to Human."
     )
     return compose_agent_instructions(run_context, body)
 
 triage_agent = Agent[TelcoAgentContext](
-    name="Triage Agent",
+    name="Triage",
     model=AGENT_MODEL,
-    handoff_description="Delegates the customer's request to the appropriate telco agent.",
+    handoff_description="General KB + Q&A; hands off to Customer Support, Technical Support, or Human.",
     instructions=triage_instructions,
-    handoffs=[
-        handoff(agent=plan_change_agent, on_handoff=on_plan_change_handoff),
-        handoff(agent=billing_agent, on_handoff=on_billing_handoff),
-        handoff(agent=tech_support_agent, on_handoff=on_support_handoff),
-        data_usage_agent,
-        roaming_agent,
-        faq_agent,
-    ],
+    handoffs=[],
+    tools=[get_current_plan, list_available_plans, plan_details, telco_faq_lookup],
     input_guardrails=[relevance_guardrail, jailbreak_guardrail],
 )
 
 # Human Support agent (for manual operator handoff)
 human_support_agent = Agent[TelcoAgentContext](
-    name="Human Support",
+    name="Human",
     model=AGENT_MODEL,
     handoff_description="Route to a human operator for manual assistance.",
     instructions=(
@@ -686,12 +569,67 @@ human_support_agent = Agent[TelcoAgentContext](
     input_guardrails=[],
 )
 
-# Add human support to triage handoffs
-triage_agent.handoffs.append(human_support_agent)
+def customer_support_instructions(
+    run_context: RunContextWrapper[TelcoAgentContext], agent: Agent[TelcoAgentContext]
+) -> str:
+    ctx = run_context.context
+    mobile = ctx.mobile_number or "[unknown]"
+    plan = ctx.plan_name or "[unknown]"
+    balance = ctx.billing_balance
+    shown_balance = f"${balance:.2f}" if isinstance(balance, (int, float)) else "[unknown]"
+    roaming = ctx.roaming_active
+    roaming_status = "active" if roaming else "inactive"
+    body = (
+        "You are the Customer Support agent. You handle administrative requests that may change account state.\n"
+        f"1. Verify or collect mobile number (on file: {mobile}).\n"
+        f"2. Plan changes: current plan {plan}. Use upgrade_plan after confirming details.\n"
+        f"3. Billing and payments: outstanding balance {shown_balance}. Use pay_bill when the user confirms an amount.\n"
+        "4. Data usage: when asked, use check_data_usage and report remaining data succinctly.\n"
+        f"5. Roaming: current status {roaming_status}. Use activate_roaming or deactivate_roaming upon explicit request.\n"
+        "6. If the request is general information, you may answer briefly or send back to Triage."
+    )
+    return compose_agent_instructions(run_context, body)
 
-# Set up handoff relationships (return paths to triage)
-for a in [plan_change_agent, billing_agent, tech_support_agent, data_usage_agent, roaming_agent, faq_agent, human_support_agent]:
+
+customer_support_agent = Agent[TelcoAgentContext](
+    name="Customer Support",
+    model=AGENT_MODEL,
+    handoff_description="Handles plan changes, billing/payments, data usage lookups, and roaming.",
+    instructions=customer_support_instructions,
+    tools=[
+        upgrade_plan,
+        list_available_plans,
+        plan_details,
+        pay_bill,
+        check_data_usage,
+        activate_roaming,
+        deactivate_roaming,
+        get_current_plan,
+        telco_faq_lookup,
+    ],
+    input_guardrails=[relevance_guardrail, jailbreak_guardrail],
+)
+
+
+# =========================
+# HOOKS (updated)
+# =========================
+
+async def on_customer_support_handoff(context: RunContextWrapper[TelcoAgentContext]) -> None:
+    if context.context.mobile_number is None:
+        context.context.mobile_number = f"8{random.randint(1000000, 9999999)}"
+    if context.context.billing_balance is None:
+        context.context.billing_balance = round(random.uniform(10, 120), 2)
+
+# Wire triage handoffs now that agents exist
+triage_agent.handoffs.extend([
+    handoff(agent=customer_support_agent, on_handoff=on_customer_support_handoff),
+    handoff(agent=tech_support_agent, on_handoff=on_support_handoff),
+    human_support_agent,
+])
+
+# Set up return paths to triage and allow human handoff from specialists
+for a in [customer_support_agent, tech_support_agent, human_support_agent]:
     a.handoffs.append(triage_agent)
-
-# Allow Billing Agent to hand off directly to Human Support when needed
-billing_agent.handoffs.append(human_support_agent)
+    if a is not human_support_agent:
+        a.handoffs.append(human_support_agent)

@@ -37,7 +37,7 @@ export function AgentPanel({
 }: AgentPanelProps) {
   const activeAgent = agents.find((a) => a.name === currentAgent);
   const runnerEvents = events.filter((e) => e.type !== "message");
-  const isHuman = currentAgent === "Human Support";
+  const isHuman = currentAgent === "Human";
 
   return (
     <div className="w-3/5 h-full flex flex-col border-r border-gray-200 bg-white rounded-xl shadow-sm">

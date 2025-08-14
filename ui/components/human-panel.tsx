@@ -40,7 +40,7 @@ export function HumanPanel({ isActive, isSending, failedReason, onSend, onReturn
                   {isActive ? "Active" : "Inactive"}
                 </Badge>
                 <span className="text-xs text-zinc-600">
-                  {isActive ? "You can reply on behalf of the agent." : "Hand off to Human Support to enable."}
+                  {isActive ? "You can reply on behalf of the agent." : "Hand off to Human to enable."}
                 </span>
               </>
             )}
