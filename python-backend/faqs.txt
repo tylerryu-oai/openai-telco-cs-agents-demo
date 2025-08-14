@@ -1,0 +1,27 @@
+Q: How much is daily roaming? What are the roaming charges?
+A: DataRoam Unlimited Daily (also called Roam-All-Day) is typically S$19/25/29 per day depending on destination. You are only charged on days you use roaming data. Check the Singtel app for your destination’s tier and partners.
+
+Q: Do you support 5G Standalone? What about coverage?
+A: Yes. Singtel 5G Standalone covers most of Singapore. You’ll need a 5G-capable device and a 5G plan to access it.
+
+Q: I lost my SIM / want to replace SIM / eSIM support?
+A: You can replace your SIM at any Singtel shop with valid ID. A replacement fee may apply. eSIM is available for many devices and can be provisioned in-store.
+
+Q: Can I recontract? When can I recontract?
+A: Most plans recontract every 12–24 months. You can usually recontract about 2 months before expiry. Device offers may be available at recontract.
+
+Q: How do I buy add-ons or data passes?
+A: You can purchase local data passes and roaming add-ons in the Singtel app. They activate immediately and charges appear on your next bill.
+
+Q: Billing dispute / double charge
+A: If you suspect a duplicate charge, contact support via chat or call; we can investigate and process a refund where appropriate. Taxes and regulatory fees are sometimes separate from discounts.
+
+Q: How do I check my data usage?
+A: In the Singtel app you can see remaining data and your cycle reset date. You can also ask the Data Usage Agent in this demo.
+
+Q: APN settings
+A: Most devices configure APN automatically. If needed, set APN to "hicard" for mobile data and ensure Data Roaming is enabled when overseas.
+
+Q: Number porting
+A: You can port your number from another operator when signing up. Keep your line active with the other operator until porting completes.
+
